@@ -8,7 +8,7 @@ class DeepSeek_R1(nn.Module):
     def __init__(self,cfg,model_id="deepseek-ai/DeepSeek-R1"):
         super().__init__()
         self.cfg = cfg
-        self.tokenizer = load_tokenizer()
+        self.tokenizer = load_tokenizer(model_id)
         self.vocab_size = self.tokenizer.vocab_size
         self.embedding = nn.Embedding(num_embeddings= self.vocab_size,
                                       embedding_dim=cfg['d_in'])

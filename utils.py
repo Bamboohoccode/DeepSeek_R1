@@ -43,6 +43,7 @@ class  RMSNorm(nn.Module):
 
 class FFN(nn.Module):
     def __init__(self,d_out,d_latent):
+        super().__init__()
         self.W1 = nn.Linear(d_out,d_latent)
         self.activation = nn.SiLU()
         self.W2 = nn.Linear(d_latent,d_out)
@@ -116,7 +117,7 @@ class DeepSeekMoE(nn.Module):
                     
                     out_routed[token_mask] += expert_output * routing_weights[token_mask]
 
-        out_final = out_shared + out_routed + X_flat
+        out_final = out_shared + out_routed
 
         return out_final.view(B, S, d_out)
 

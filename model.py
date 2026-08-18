@@ -6,6 +6,7 @@ from MLA_Transformers_MPT import Transformer,MTP
 
 class DeepSeek_R1(nn.Module):
     def __init__(self,cfg):
+        super().__init__()
         self.cfg = cfg
         self.tokenizer = load_tokenizer()
         self.vocab_size = self.tokenizer.vocab_size
@@ -30,40 +31,53 @@ class DeepSeek_R1(nn.Module):
                 vocab_size=self.vocab_size)
             for i in range(2)
         ])
-        self.loss =nn.CrossEntropyLoss()
+        self.loss_func = nn.CrossEntropyLoss(ignore_index=-100)
+    def forward(self, text_list=None, input_ids=None, attention_mask=None): # For 2 type of inputs
+        if input_ids is None:
+            encoded = self.tokenizer(
+                text_list,
+                return_tensors='pt',
+                padding=True,
+                truncation=True,
+                max_length=self.cfg['context_length']
+            )
+            input_ids = encoded['input_ids'].to(next(self.parameters()).device)
+            attention_mask = encoded['attention_mask'].to(next(self.parameters()).device)
+        B, S = input_ids.shape
+        x = self.embedding(input_ids)  # [B, S, d_in]
 
-    def forward(self,X):
-        #X: List of string []
-        encoded_token = self.tokenizer(X,
-                                    return_tensors = 'pt',
-                                    padding = True,
-                                    truncation = True,
-                                    max_length = self.cfg['max_length']
-                                    )
-        input_ids = encoded_token['input_ids']
-        attn_mask = encoded_token['attention_mask']
-        inputs = self.embedding(input_ids) # [b,seq_len,d_in]
+        for block in self.transformer_blocks:
+            x = block(x, attn_mask=attention_mask)  # Hidden states: [B, S, d_out]
+        logits_main = self.output_head(x) # [B,seq_len,vocab_size]
 
-        b,seq_len,d_in = inputs.shape
+        #MPT
+        mtp_logits_list = []
+        current_hidden = x
+        for mtp_layer in self.MPT_Module:
+            # Mỗi MTP module nhận hidden states hiện tại để dự đoán token xa hơn
+            logits_mtp, current_hidden = mtp_layer(self.embedding(input_ids), current_hidden)
+            mtp_logits_list.append(logits_mtp)
 
-        inputs = inputs.view(-1,6,seq_len,d_in)
-        batch_input_ids = input_ids.view(-1,6,seq_len,1)
-
-        outputs = self.transformer_blocks(inputs[:,0:4,:,:])
-
-        target_tokens = [self.output_head(outputs)] # Cac phan tu co shape [b,4,seq_len,vocab_size]
-
-        for i in range(len(self.MPT_Module)):
-            target_token,outputs = self.MPT_Module[i](inputs[:,i:i+4,:,:],outputs)
-            target_tokens.append(target_token)
-        # Sau loop ta co 3 phan tu trong target_tokens [3,b,4,seq_len,vocab_size]
-
-        Loss = 0
-        for i in range(len(target_tokens)):
-            output = target_tokens[i]
-            target = batch_input_ids[:,i:i+4,:,:]
-            Loss += self.loss(output,target)
-        return Loss
+        # If undergoing the reference process, return logits_main and mtp_logits for predict next token !
+        if not self.training:
+            return logits_main, mtp_logits_list
+        target_ids = input_ids.clone() # [B,seq_len]
+        if attention_mask is not None:
+            target_ids = target_ids.masked_fill(attention_mask == 0, -100)
+        shift_logits_main = logits_main[:, :-1, :].contiguous().view(-1, self.vocab_size)
+        shift_targets_main = target_ids[:, 1:].contiguous().view(-1)
+        loss_main = self.loss_func(shift_logits_main, shift_targets_main)
+        # 4.2 Loss MTP
+        total_loss = loss_main
+        mtp_weight = self.cfg['mtp_loss_weight']
+        for depth, logits_mtp in enumerate(mtp_logits_list, start=2):
+            if S > depth:
+                #Good slice :> Take Note
+                shift_logits_mtp = logits_mtp[:, :-depth, :].contiguous().view(-1, self.vocab_size)
+                shift_targets_mtp = target_ids[:, depth:].contiguous().view(-1)
+                loss_mtp = self.loss_func(shift_logits_mtp, shift_targets_mtp)
+                total_loss += mtp_weight * loss_mtp
+        return total_loss
         
 
 

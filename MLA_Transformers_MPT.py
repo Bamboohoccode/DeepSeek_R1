@@ -27,7 +27,7 @@ class Multi_Latent_Attention(nn.Module):
         self.out_proj = nn.Linear(self.dim_head - RoPE_dim // num_heads,d_out)
         self.register_buffer('mask', torch.triu(torch.ones(context_length, context_length), diagonal=1))
 
-    def forward(self,X):
+    def forward(self,X,attn_mask = None):
         b,seq_len,d = X.shape
 
         c_tq = self.W_cq(X)
@@ -58,7 +58,12 @@ class Multi_Latent_Attention(nn.Module):
 
         attn_scores = Q @ K.transpose(2,3)
         mask_bool = self.mask.bool()[:seq_len,:seq_len]
-        attn_scores = attn_scores.masked_fill(mask_bool,-torch.inf)
+        if attn_mask is not None:
+            pad_mask = (attn_mask == 0).unsqueeze(1).unsqueeze(2)
+            combined_mask = pad_mask | mask_bool
+        else:
+            combined_mask = mask_bool
+        attn_scores = attn_scores.masked_fill(combined_mask,-torch.inf)
 
         attn_scores = torch.softmax(attn_scores / (self.dim_head ** 0.5),dim = -1)
         context_vec = attn_scores @ V # [b,num_heads,seq_len,dim_head - RoPE_dim // num_heads]
@@ -69,6 +74,7 @@ class Multi_Latent_Attention(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(self,d_in,d_latent,d_out,num_heads,RoPE_dim,context_length,MoE : bool = False):
+        super().__init__()
         self.rmsnorm1 = RMSNorm(d_in)
         self.attenion_head = Multi_Latent_Attention(d_in = d_in,
                                                     d_latent=d_latent,
@@ -85,17 +91,18 @@ class Transformer(nn.Module):
         else:
             self.out_proj = FFN(d_out = d_out,
                                 d_latent=d_latent)
-    def forward(self,X):
+    def forward(self,X,attn_mask = None):
         Branch_X1 = self.rmsnorm1(X)
-        Branch_X1 = self.attenion_head(Branch_X1)
+        Branch_X1 = self.attenion_head(Branch_X1,attn_mask)
         X = X + Branch_X1
         Branch_X2 = self.rmsnorm2(X)
-        Branch_X2 = self.out_proj(X)
+        Branch_X2 = self.out_proj(Branch_X2)
         X = X + Branch_X2
         return X
     
 class MTP(nn.Module):
     def __init__(self,d_in,d_latent,d_out,num_heads,RoPE_dim,context_length,vocab_size):
+        super().__init__()
         self.rmsnorm1 = RMSNorm(emb_dim=d_in)
         in_features = d_in + d_out
         self.linear_proj = nn.Linear(in_features=in_features,

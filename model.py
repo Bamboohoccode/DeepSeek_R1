@@ -9,7 +9,7 @@ class DeepSeek_R1(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.tokenizer = load_tokenizer(model_id)
-        self.vocab_size = self.tokenizer.vocab_size
+        self.vocab_size = cfg['vocab_size']
         self.embedding = nn.Embedding(num_embeddings= self.vocab_size,
                                       embedding_dim=cfg['d_in'])
         
@@ -89,6 +89,7 @@ class DeepSeek_R1(nn.Module):
         hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
         # Tự động ánh xạ tham số từ HuggingFace sang cfg của bạn
         cfg = {
+            'vocab_size': hf_config.vocab_size,
             'd_in': hf_config.hidden_size,                # 1536
             'd_out': hf_config.hidden_size,               # 1536
             'd_latent': hf_config.intermediate_size,      # 8960

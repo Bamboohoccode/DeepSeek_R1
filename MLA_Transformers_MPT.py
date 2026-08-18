@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils import RoPE,RMSNorm,FFN,DeepSeekMoE
+from utils import RoPE,RMSNorm,SwiGLUFFN,DeepSeekMoE
 
 
 class Multi_Latent_Attention(nn.Module):
@@ -89,7 +89,7 @@ class Transformer(nn.Module):
                                         d_ffn_routed=d_latent,
                                         d_ffn_shared=d_latent)
         else:
-            self.out_proj = FFN(d_out = d_out,
+            self.out_proj = SwiGLUFFN(d_out = d_out,
                                 d_latent=d_latent)
     def forward(self,X,attn_mask = None):
         Branch_X1 = self.rmsnorm1(X)
@@ -109,6 +109,7 @@ class MTP(nn.Module):
                                      out_features = d_out)
         self.transformer = Transformer(d_in = d_in,
                                     d_latent = d_latent,
+                                    d_out = d_out,
                                     num_heads = num_heads,
                                     RoPE_dim=RoPE_dim,
                                     context_length=context_length,

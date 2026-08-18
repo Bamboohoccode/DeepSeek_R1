@@ -41,18 +41,23 @@ class  RMSNorm(nn.Module):
         X_normed = X * torch.rsqrt(variance + self.epsilon)
         return self.gamma * X_normed
 
-class FFN(nn.Module):
-    def __init__(self,d_out,d_latent):
+class SwiGLUFFN(nn.Module):
+    def __init__(self, d_out: int, d_latent: int):
         super().__init__()
-        self.W1 = nn.Linear(d_out,d_latent)
-        self.activation = nn.SiLU()
-        self.W2 = nn.Linear(d_latent,d_out)
-    def forward(self,X):
-        X = self.W1(X)
-        X = self.activation(X)
-        output = self.W2(X)
+        self.W_gate = nn.Linear(d_out, d_latent, bias=False)
+        self.W_up   = nn.Linear(d_out, d_latent, bias=False)
+        self.W_down = nn.Linear(d_latent, d_out, bias=False) 
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        gate_branch = F.silu(self.W_gate(X))
+        
+        up_branch = self.W_up(X)  
+        
+        hidden_states = gate_branch * up_branch
+        
+        output = self.W_down(hidden_states) 
+        
         return output
-
+    
 class DeepSeekMoE(nn.Module):
     """
     Mô hình DeepSeekMoE kết hợp:
@@ -75,10 +80,10 @@ class DeepSeekMoE(nn.Module):
         self.router = nn.Linear(d_out, num_routed_experts, bias=False)
 
         total_shared_dim = num_shared_experts * d_ffn_shared
-        self.shared_experts = FFN(d_out, total_shared_dim)
+        self.shared_experts = SwiGLUFFN(d_out, total_shared_dim)
 
         self.routed_experts = nn.ModuleList([
-            FFN(d_out, d_ffn_routed) for _ in range(num_routed_experts)
+            SwiGLUFFN(d_out, d_ffn_routed) for _ in range(num_routed_experts)
         ])
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:

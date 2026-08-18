@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tokenizer import load_tokenizer
 from MLA_Transformers_MPT import Transformer,MTP
-
+from transformers import AutoConfig,AutoTokenizer,AutoModelForCausalLM
 class DeepSeek_R1(nn.Module):
     def __init__(self,cfg):
         super().__init__()
@@ -15,6 +15,7 @@ class DeepSeek_R1(nn.Module):
         
         self.transformer_blocks = nn.Sequential(*[Transformer(d_in = cfg['d_in'],
                                                                  d_latent = cfg['d_latent'],
+                                                                 d_out = cfg['d_out'],
                                                                  num_heads = cfg['num_heads'],
                                                                  RoPE_dim=cfg['RoPE_dim'],
                                                                  context_length=cfg['context_length'],
@@ -25,6 +26,7 @@ class DeepSeek_R1(nn.Module):
         self.MPT_Module = nn.ModuleList([
             MTP(d_in = cfg['d_in'],
                 d_latent = cfg['d_latent'],
+                d_out = cfg['d_out'],
                 num_heads = cfg['num_heads'],
                 RoPE_dim=cfg['RoPE_dim'],
                 context_length=cfg['context_length'],
@@ -78,9 +80,70 @@ class DeepSeek_R1(nn.Module):
                 loss_mtp = self.loss_func(shift_logits_mtp, shift_targets_mtp)
                 total_loss += mtp_weight * loss_mtp
         return total_loss
+    @classmethod
+    def from_pretrained(cls, model_id="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"):
+        """
+        Phương thức nạp mô hình Pretrained trực tiếp từ Hugging Face vào DeepSeek_R1
+        """
+        print(f"1. Đang đọc Cấu hình (Config) từ HuggingFace: {model_id}...")
+        hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+        # Tự động ánh xạ tham số từ HuggingFace sang cfg của bạn
+        cfg = {
+            'd_in': hf_config.hidden_size,                # 1536
+            'd_out': hf_config.hidden_size,               # 1536
+            'd_latent': hf_config.intermediate_size,      # 8960
+            'num_heads': hf_config.num_attention_heads,   # 12
+            'RoPE_dim': 60,
+            'context_length': 2048,
+            'num_transformers': hf_config.num_hidden_layers, # 28
+            'num_FFN_transformers': hf_config.num_hidden_layers, # Dùng FFN cho toàn bộ
+            'num_mtp_layers': 2
+        }
+        # Khởi tạo Instance của DeepSeek_R1 với cfg tương ứng
+        print("2. Đang khởi tạo mô hình DeepSeek_R1 theo cấu hình Pretrained...")
+        model = cls(cfg)
+        print("3. Đang nạp trọng số (Weights) từ Hugging Face...")
+        hf_model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=torch.float32,
+            trust_remote_code=True
+        )
+        hf_sd = hf_model.state_dict()
+        custom_sd = model.state_dict()
+        # Ánh xạ tên Layer từ Hugging Face sang Custom Model
+        new_sd = {}
+        
+        # 1. Embedding & Output Head
+        if "model.embed_tokens.weight" in hf_sd:
+            new_sd["embedding.weight"] = hf_sd["model.embed_tokens.weight"]
+        if "lm_head.weight" in hf_sd:
+            new_sd["output_head.weight"] = hf_sd["lm_head.weight"]
+        # 2. Ánh xạ các tầng Transformer Blocks
+        for i in range(cfg['num_transformers']):
+            prefix_hf = f"model.layers.{i}."
+            prefix_custom = f"transformer_blocks.{i}."
+            # RMSNorm 1 & 2
+            if f"{prefix_hf}input_layernorm.weight" in hf_sd:
+                new_sd[f"{prefix_custom}rmsnorm1.gamma"] = hf_sd[f"{prefix_hf}input_layernorm.weight"]
+            if f"{prefix_hf}post_attention_layernorm.weight" in hf_sd:
+                new_sd[f"{prefix_custom}rmsnorm2.gamma"] = hf_sd[f"{prefix_hf}post_attention_layernorm.weight"]
+            # Output Projection Attention
+            if f"{prefix_hf}self_attn.o_proj.weight" in hf_sd:
+                if f"{prefix_custom}attenion_head.out_proj.weight" in custom_sd:
+                    if custom_sd[f"{prefix_custom}attenion_head.out_proj.weight"].shape == hf_sd[f"{prefix_hf}self_attn.o_proj.weight"].shape:
+                        new_sd[f"{prefix_custom}attenion_head.out_proj.weight"] = hf_sd[f"{prefix_hf}self_attn.o_proj.weight"]
+        # Nạp trọng số vào mô hình với strict=False
+        missing, unexpected = model.load_state_dict(new_sd, strict=False)
+        print(f"   --> Nạp thành công {len(new_sd)} ma trận trọng số!")
+        print(f"   --> Missing Keys (Các layer chưa có trọng số gốc như MTP): {len(missing)}")
+        return model
+
         
 
-
+if __name__ == "__main__":
+    # Nạp mô hình Pretrained 1.5B trực tiếp qua model.py
+    model = DeepSeek_R1.from_pretrained("deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B")
+    print("\nTrạng thái: Mô hình DeepSeek_R1 của bạn đã sẵn sàng chạy!")
 
 
         

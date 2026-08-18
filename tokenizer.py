@@ -1,8 +1,7 @@
 import os
 from transformers import AutoTokenizer
 
-def load_tokenizer():
-    model_id = "deepseek-ai/DeepSeek-R1"
+def load_tokenizer(model_id = "deepseek-ai/DeepSeek-R1"):
     
     print(f"1. Đang tải Pretrained Tokenizer từ HuggingFace: {model_id}...")
     tokenizer = AutoTokenizer.from_pretrained(

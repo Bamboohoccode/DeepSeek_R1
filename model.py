@@ -5,7 +5,7 @@ from tokenizer import load_tokenizer
 from MLA_Transformers_MPT import Transformer,MTP
 from transformers import AutoConfig,AutoTokenizer,AutoModelForCausalLM
 class DeepSeek_R1(nn.Module):
-    def __init__(self,cfg):
+    def __init__(self,cfg,model_id="deepseek-ai/DeepSeek-R1"):
         super().__init__()
         self.cfg = cfg
         self.tokenizer = load_tokenizer()
@@ -101,7 +101,7 @@ class DeepSeek_R1(nn.Module):
         }
         # Khởi tạo Instance của DeepSeek_R1 với cfg tương ứng
         print("2. Đang khởi tạo mô hình DeepSeek_R1 theo cấu hình Pretrained...")
-        model = cls(cfg)
+        model = cls(cfg = cfg,model_id = model_id)
         print("3. Đang nạp trọng số (Weights) từ Hugging Face...")
         hf_model = AutoModelForCausalLM.from_pretrained(
             model_id,

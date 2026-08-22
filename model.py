@@ -34,6 +34,8 @@ class DeepSeek_R1(nn.Module):
             for i in range(2)
         ])
         self.loss_func = nn.CrossEntropyLoss(ignore_index=-100)
+    def get_tokenizer():
+        return load_tokenizer()
     def forward(self, text_list=None, input_ids=None, attention_mask=None): # For 2 type of inputs
         if input_ids is None:
             encoded = self.tokenizer(
@@ -90,11 +92,11 @@ class DeepSeek_R1(nn.Module):
         # Tự động ánh xạ tham số từ HuggingFace sang cfg của bạn
         cfg = {
             'vocab_size': hf_config.vocab_size,
-            'd_in': hf_config.hidden_size,                # 1536
-            'd_out': hf_config.hidden_size,               # 1536
-            'd_latent': hf_config.intermediate_size,      # 8960
-            'num_heads': hf_config.num_attention_heads,   # 12
-            'RoPE_dim': 60,
+            'd_in': hf_config.hidden_size,               
+            'd_out': hf_config.hidden_size,              
+            'd_latent': hf_config.intermediate_size,     
+            'num_heads': hf_config.num_attention_heads, 
+            'RoPE_dim': hf_config.qk_rope_head_dim,
             'context_length': 2048,
             'num_transformers': hf_config.num_hidden_layers, # 28
             'num_FFN_transformers': hf_config.num_hidden_layers, # Dùng FFN cho toàn bộ
@@ -143,6 +145,7 @@ class DeepSeek_R1(nn.Module):
 
 if __name__ == "__main__":
     # Nạp mô hình Pretrained 1.5B trực tiếp qua model.py
+    # Vì architecture khác nhau nên ta chỉ load được model Deepseek 671B parameters
     model = DeepSeek_R1.from_pretrained("deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B")
     print("\nTrạng thái: Mô hình DeepSeek_R1 của bạn đã sẵn sàng chạy!")
 
